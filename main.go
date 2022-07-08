@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/sns"
 	"github.com/aws/aws-sdk-go/service/sns/snsiface"
 	"os"
+	"strconv"
 )
 
 func PublishMessage(svc snsiface.SNSAPI, msg, phoneNumber *string) (*sns.PublishOutput, error) {
@@ -22,8 +23,11 @@ func PublishMessage(svc snsiface.SNSAPI, msg, phoneNumber *string) (*sns.Publish
 
 func main() {
 
-	msgPtr := flag.String("m", "test", "The message to send to the user")
-	phoneNumber := flag.String("t", "+16366146678", "The phone number you want to send message to")
+	randomNumber := strconv.Itoa(int(GenerateRandomNumber()))
+
+	msgPtr := flag.String("m", randomNumber, "The message to send to the user")
+	phoneNumber := flag.String("n", "[+][country code][area code][local phone number]",
+		"The phone number you want to send message to in E.164 format")
 
 	flag.Parse()
 
@@ -54,8 +58,8 @@ func main() {
 	fmt.Println(*result.MessageId)
 }
 
-func GenerateRandomNumber() *uint16 {
+func GenerateRandomNumber() uint16 {
 	var n uint16
 	binary.Read(rand.Reader, binary.LittleEndian, &n)
-	return &n
+	return n
 }
