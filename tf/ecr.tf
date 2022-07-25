@@ -10,3 +10,7 @@ resource "aws_ecr_repository" "joe-sandbox" {
     prevent_destroy = true
   }
 }
+
+output "ecr_respository_url" {
+  value = aws_ecr_repository.joe-sandbox.repository_url
+}
