@@ -5,8 +5,17 @@ terraform {
       version = "4.23.0"
     }
   }
+  required_version = ">= 1.1.0"
+
+  cloud {
+    organization = "neocharge"
+
+    workspaces {
+      name = "joe-sandbox"
+    }
+  }
 }
 
 provider "aws" {
-  # Configuration options
+  region = "us-west-2"
 }
