@@ -7,7 +7,7 @@ resource "aws_ecr_repository" "joe-sandbox" {
   }
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 }
 

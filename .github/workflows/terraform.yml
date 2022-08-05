@@ -5,14 +5,15 @@ on:
     branches:
       - master
   pull_request:
-defaults:
-  run:
-    working-directory: tf
 
 jobs:
   terraform:
     name: "Terraform"
     runs-on: ubuntu-latest
+    env:
+      tf-directory: ./tf
+    outputs:
+      ecr_registry_url: ${{ steps.terraform_output_ecr_registry_url.outputs.ecr_registry_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -22,24 +23,29 @@ jobs:
         with:
           # terraform_version: 0.13.0:
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+          terraform_wrapper: false
 
       - name: Terraform Format
         id: fmt
         run: terraform fmt -check
+        working-directory: ${{env.tf-directory}}
 
       - name: Terraform Init
         id: init
         run: terraform init
+        working-directory: ${{env.tf-directory}}
       
       - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
+        working-directory: ${{env.tf-directory}}
 
       - name: Terraform Plan
         id: plan
         if: github.event_name == 'pull_request'
         run: terraform plan -no-color -input=false
         continue-on-error: true
+        working-directory: ${{env.tf-directory}}
 
       - uses: actions/github-script@v6
         if: github.event_name == 'pull_request'
@@ -73,10 +79,58 @@ jobs:
       - name: Terraform Plan Status
         if: steps.plan.outcome == 'failure'
         run: exit 1
+        working-directory: ${{env.tf-directory}}
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         run: terraform apply -auto-approve -input=false
+        working-directory: ${{env.tf-directory}}
 
-      - name: Terraform Output
-        run: terraform output ecr_respository_url
+      - name: Terraform Output - ECR Registry Url
+        id: terraform_output_ecr_registry_url
+        run: |
+          echo '::echo::on'
+          URL=$(terraform output -raw ecr_respository_url)
+          echo "::set-output name=ecr_registry_url::$URL"
+        working-directory: ${{env.tf-directory}}
+        
+  build-upload:
+    name: "Build and upload to ECS"
+    runs-on: ubuntu-latest
+    needs: terraform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Import Secrets
+        uses: hashicorp/vault-action@v2.4.0
+        with:
+          url: https://vault.dev.neocharge.io
+          token: ${{ secrets.VAULT_TOKEN }}
+          caCertificate: ${{ secrets.VAULT_CA_CERT }}
+          secrets: |
+              aws/creds/ecr_pusher access_key | AWS_ACCESS_KEY_ID;
+              aws/creds/ecr_pusher secret_key | AWS_SECRET_ACCESS_KEY;
+              aws/creds/ecr_pusher security_token | AWS_SESSION_TOKEN;
+      
+      - name: Sleep for 10 seconds
+        run: sleep 10s
+        shell: bash
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-region: us-west-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: application-jsandbox #todo link to terraform output
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
