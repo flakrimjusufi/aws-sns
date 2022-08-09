@@ -1,5 +1,9 @@
-resource "aws_ecr_repository" "joe-sandbox" {
-  name                 = "application-jsandbox"
+variable "aws_ecr_repository_name" {
+  type = string
+}
+
+resource "aws_ecr_repository" "default" {
+  name                 = var.aws_ecr_repository_name
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
