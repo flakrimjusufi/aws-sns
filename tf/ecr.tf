@@ -16,5 +16,5 @@ resource "aws_ecr_repository" "default" {
 }
 
 output "ecr_respository_url" {
-  value = aws_ecr_repository.joe-sandbox.repository_url
+  value = aws_ecr_repository.default.repository_url
 }
