@@ -8,62 +8,15 @@ on:
 
 env:
   APPLICATION_NAME: application-jsandbox
+  NOMAD_ADDR: https://nomad.dev.neocharge.io
 
 jobs:
-        
-  build-upload:
-    name: "Build and upload to ECS"
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Import Secrets
-        uses: hashicorp/vault-action@v2.4.0
-        with:
-          url: https://vault.dev.neocharge.io
-          token: ${{ secrets.VAULT_TOKEN }}
-          caCertificate: ${{ secrets.VAULT_CA_CERT }}
-          secrets: |
-              aws/creds/ecr_pusher access_key | AWS_ACCESS_KEY_ID;
-              aws/creds/ecr_pusher secret_key | AWS_SECRET_ACCESS_KEY;
-              aws/creds/ecr_pusher security_token | AWS_SESSION_TOKEN;
-      
-      - name: Sleep for 10 seconds
-        run: sleep 10s
-        shell: bash
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-region: us-west-1
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-
-      - name: Build and tag Docker image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ env.APPLICATION_NAME }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-
-      - name: Push Docker image to Amazon ECR
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: application-jsandbox }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-
+  
   terraform:
     name: "Terraform"
     runs-on: ubuntu-latest
     env:
-      tf-directory: ./tf
+      tf-directory: ./devops/tf
     outputs:
       ecr_registry_url: ${{ steps.terraform_output_ecr_registry_url.outputs.ecr_registry_url }}
     steps:
@@ -151,3 +104,75 @@ jobs:
           URL=$(terraform output -raw ecr_respository_url)
           echo "::set-output name=ecr_registry_url::$URL"
         working-directory: ${{env.tf-directory}}
+
+  build-upload:
+    name: "Build and upload to ECS"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Import Secrets
+        uses: hashicorp/vault-action@v2.4.0
+        with:
+          url: https://vault.dev.neocharge.io
+          token: ${{ secrets.VAULT_TOKEN }}
+          caCertificate: ${{ secrets.VAULT_CA_CERT }}
+          secrets: |
+              aws/creds/ecr_pusher access_key | AWS_ACCESS_KEY_ID;
+              aws/creds/ecr_pusher secret_key | AWS_SECRET_ACCESS_KEY;
+              aws/creds/ecr_pusher security_token | AWS_SESSION_TOKEN;
+      
+      - name: Sleep for 10 seconds
+        run: sleep 10s
+        shell: bash
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-region: us-west-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build and tag Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ env.APPLICATION_NAME }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+
+      - name: Push Docker image to Amazon ECR
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: application-jsandbox }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+  deploy:
+    name: "Deploy with Nomad"
+    runs-on: ubuntu-latest
+    env:
+      tf-directory: ./devops/tf
+    steps:
+      - name: Import Secrets
+        uses: hashicorp/vault-action@v2.4.0
+        with:
+          url: ${{ secrets.VAULT_ADDR }}
+          token: ${{ secrets.VAULT_TOKEN }}
+          caCertificate: ${{ secrets.VAULT_CA_CERT }}
+          secrets: |
+              nomad/creds/developer secret_id | NOMAD_TOKEN;
+              
+      - name: Deploy with Nomad
+        uses: scott-ad-riley/nomad-deploy
+        with:
+          token: '{{ env.NOMAD_TOKEN }}'
+          address: '{{ env.NOMAD_ADDR }}'
+          job: ./devops/nomad/test.nomad
+          # optional:
+          additional_vars: "SOME_IMAGE=some-value REGISTRY_AUTH_TOKEN=some-other-value"
