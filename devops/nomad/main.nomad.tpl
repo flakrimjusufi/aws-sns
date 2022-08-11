@@ -45,11 +45,7 @@ job "${job_name}" {
         memory = ${service_memory_mb} # MB
       }
 
-      env = {
-      %{ for env_key, env_value in env }
-      ${env_key} = "${env_value}"
-      %{ endfor ~}
-      }
+      env = ${env}
     }
   }
 }
