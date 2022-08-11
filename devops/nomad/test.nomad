@@ -1,5 +1,5 @@
 job "docs" {
-  datacenters = ["dc1"]
+  datacenters = ["us-west-1"]
 
   group "example" {
     network {
