@@ -155,6 +155,7 @@ jobs:
 
   deploy:
     name: "Deploy with Nomad"
+    needs: build-upload
     runs-on: ubuntu-latest
     env:
       tf-directory: ./devops/tf
