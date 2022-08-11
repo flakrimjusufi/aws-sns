@@ -176,6 +176,6 @@ jobs:
         with:
           token: ${{ env.NOMAD_TOKEN }}
           address: ${{ env.NOMAD_ADDR }}
-          job: ./devops/nomad/test.nomad
-          # optional:
-          additional_vars: "SOME_IMAGE=some-value REGISTRY_AUTH_TOKEN=some-other-value"
+          job: ./devops/nomad/main.nomad.tpl
+          additional_vars: " job_name=NAME job_datacenters=us-west-1 job_image=IMAGE route_domain=testt route_path=jp service_cpu_mhz=500 service_memory_mb=128 env=[]"
+
