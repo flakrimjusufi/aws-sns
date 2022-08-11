@@ -106,6 +106,7 @@ jobs:
         working-directory: ${{env.tf-directory}}
 
   build-upload:
+    needs: terraform
     name: "Build and upload to ECS"
     runs-on: ubuntu-latest
     steps:
@@ -175,12 +176,12 @@ jobs:
       - name: Deploy with Nomad
         uses: scott-ad-riley/nomad-deploy-action@master
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REGISTRY: ${{ needs.terraform.outputs.ecr_registry_url }}
           ECR_REPOSITORY: ${{ env.APPLICATION_NAME }}
           IMAGE_TAG: ${{ github.sha }}
         with:
           token: ${{ env.NOMAD_TOKEN }}
           address: ${{ env.NOMAD_ADDR }}
           job: ./devops/nomad/main.nomad.tpl
-          additional_vars: "job_name=${{ env.APPLICATION_NAME }} job_datacenter=us-west-1a job_image=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY  }}:${{ env.IMAGE_TAG}} route_domain=testt route_path=jp service_cpu_mhz=500 service_memory_mb=128 env=[]"
+          additional_vars: "job_name=${{ env.APPLICATION_NAME }} job_datacenter=us-west-1a job_image=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} route_domain=testt route_path=jp service_cpu_mhz=500 service_memory_mb=128 env=[]"
 
