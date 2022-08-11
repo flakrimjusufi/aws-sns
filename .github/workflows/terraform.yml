@@ -194,5 +194,5 @@ jobs:
             route_path=jp
             service_cpu_mhz=500
             service_memory_mb=128
-            env='{"testA":"test1"}'
+            env={\"testA\":\"test1\"}
 
