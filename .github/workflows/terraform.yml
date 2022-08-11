@@ -173,9 +173,13 @@ jobs:
               
       - name: Deploy with Nomad
         uses: scott-ad-riley/nomad-deploy-action@master
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ env.APPLICATION_NAME }}
+          IMAGE_TAG: ${{ github.sha }}
         with:
           token: ${{ env.NOMAD_TOKEN }}
           address: ${{ env.NOMAD_ADDR }}
           job: ./devops/nomad/main.nomad.tpl
-          additional_vars: " job_name=NAME job_datacenters=us-west-1 job_image=IMAGE route_domain=testt route_path=jp service_cpu_mhz=500 service_memory_mb=128 env=[]"
+          additional_vars: "job_name=${{ env.APPLICATION_NAME }} job_datacenters=us-west-1a job_image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG route_domain=testt route_path=jp service_cpu_mhz=500 service_memory_mb=128 env=[]"
 
