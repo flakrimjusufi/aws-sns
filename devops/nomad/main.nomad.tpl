@@ -46,9 +46,7 @@ job "${job_name}" {
       }
 
       env = {
-      %{ for env_key, env_value in env }
-      ${env_key} = "${env_value}"
-      %{ endfor ~}
+      
       }
     }
   }
