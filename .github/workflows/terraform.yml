@@ -194,5 +194,7 @@ jobs:
             route_path=jp
             service_cpu_mhz=500
             service_memory_mb=128
-            env_TESTVARR=HELLO
+            env_AWS_ACCESS_KEY_ID=${{ secret.AWS_ACCESS_KEY_ID }}
+            env_AWS_SECRET_ACCESS_KEY=${{ secret.AWS_SECRET_ACCESS_KEY }}
+            env_AWS_REGION=${{ secret.AWS_REGION }}
 

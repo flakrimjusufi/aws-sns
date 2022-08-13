@@ -27,7 +27,7 @@ func main() {
 	randomNumber := strconv.Itoa(int(GenerateRandomNumber()))
 
 	msgPtr := flag.String("m", randomNumber, "The message to send to the user")
-	phoneNumber := flag.String("n", "[+][country code][area code][local phone number]",
+	phoneNumber := flag.String("n", "+16366146678",
 		"The phone number you want to send message to in E.164 format")
 
 	flag.Parse()
@@ -47,7 +47,7 @@ func main() {
 
 	result, err := PublishMessage(svc, msgPtr, phoneNumber)
 	if err != nil {
-		fmt.Println("Got an erreeor publishing the message:")
+		fmt.Println("Got an error publishing the message:")
 		fmt.Println(err)
 		return
 	}
