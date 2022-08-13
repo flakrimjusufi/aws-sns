@@ -5,11 +5,12 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
+	"os"
+	"strconv"
+
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sns"
 	"github.com/aws/aws-sdk-go/service/sns/snsiface"
-	"os"
-	"strconv"
 )
 
 func PublishMessage(svc snsiface.SNSAPI, msg, phoneNumber *string) (*sns.PublishOutput, error) {
@@ -46,7 +47,7 @@ func main() {
 
 	result, err := PublishMessage(svc, msgPtr, phoneNumber)
 	if err != nil {
-		fmt.Println("Got an error publishing the message:")
+		fmt.Println("Got an erreeor publishing the message:")
 		fmt.Println(err)
 		return
 	}

@@ -6,12 +6,17 @@ on:
       - master
   pull_request:
 
+env:
+  APPLICATION_NAME: application-jsandbox
+  NOMAD_ADDR: https://nomad.dev.neocharge.io
+
 jobs:
+  
   terraform:
     name: "Terraform"
     runs-on: ubuntu-latest
     env:
-      tf-directory: ./tf
+      tf-directory: ./devops/tf
     outputs:
       ecr_registry_url: ${{ steps.terraform_output_ecr_registry_url.outputs.ecr_registry_url }}
     steps:
@@ -39,6 +44,8 @@ jobs:
         id: validate
         run: terraform validate -no-color
         working-directory: ${{env.tf-directory}}
+        env:
+          TF_VAR_aws_ecr_repository_name: ${{ env.APPLICATION_NAME }}
 
       - name: Terraform Plan
         id: plan
@@ -46,6 +53,8 @@ jobs:
         run: terraform plan -no-color -input=false
         continue-on-error: true
         working-directory: ${{env.tf-directory}}
+        env:
+          TF_VAR_aws_ecr_repository_name: ${{ env.APPLICATION_NAME }}
 
       - uses: actions/github-script@v6
         if: github.event_name == 'pull_request'
@@ -85,6 +94,8 @@ jobs:
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         run: terraform apply -auto-approve -input=false
         working-directory: ${{env.tf-directory}}
+        env:
+          TF_VAR_aws_ecr_repository_name: ${{ env.APPLICATION_NAME }}
 
       - name: Terraform Output - ECR Registry Url
         id: terraform_output_ecr_registry_url
@@ -93,11 +104,11 @@ jobs:
           URL=$(terraform output -raw ecr_respository_url)
           echo "::set-output name=ecr_registry_url::$URL"
         working-directory: ${{env.tf-directory}}
-        
+
   build-upload:
+    needs: terraform
     name: "Build and upload to ECS"
     runs-on: ubuntu-latest
-    needs: terraform
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -129,7 +140,7 @@ jobs:
       - name: Build and tag Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: application-jsandbox #todo link to terraform output
+          ECR_REPOSITORY: ${{ env.APPLICATION_NAME }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
@@ -138,7 +149,50 @@ jobs:
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: application-jsandbox #todo link to terraform output
+          ECR_REPOSITORY: application-jsandbox }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+  deploy:
+    name: "Deploy with Nomad"
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    needs:
+      - terraform
+      - build-upload
+    runs-on: ubuntu-latest
+    env:
+      tf-directory: ./devops/tf
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Import Secrets
+        uses: hashicorp/vault-action@v2.4.0
+        with:
+          url: ${{ secrets.VAULT_ADDR }}
+          token: ${{ secrets.VAULT_TOKEN }}
+          caCertificate: ${{ secrets.VAULT_CA_CERT }}
+          secrets: |
+              nomad/creds/developer secret_id | NOMAD_TOKEN;
+              
+      - name: Deploy with Nomad
+        uses: scott-ad-riley/nomad-deploy-action@master
+        env:
+          ECR_REGISTRY: ${{ needs.terraform.outputs.ecr_registry_url }}
+          ECR_REPOSITORY: ${{ env.APPLICATION_NAME }}
+          IMAGE_TAG: ${{ github.sha }}
+        with:
+          token: ${{ env.NOMAD_TOKEN }}
+          address: ${{ env.NOMAD_ADDR }}
+          job: ./devops/nomad/main.nomad.tpl
+          additional_vars: |
+            job_name=${{ env.APPLICATION_NAME }}
+            job_datacenter=us-west-1a
+            job_image=${{ env.ECR_REGISTRY }}:${{ env.IMAGE_TAG }}
+            route_domain=testt
+            route_path=jp
+            service_cpu_mhz=500
+            service_memory_mb=128
+            env_TESTVARR=HELLO
+
