@@ -196,5 +196,6 @@ jobs:
             service_memory_mb=128
             env_AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
             env_AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            env_AWS_SESSION_TOKEN=${{ secrets.AWS_SESSION_TOKEN }}
             env_AWS_REGION=${{ secrets.AWS_REGION }}
 
