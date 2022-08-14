@@ -13,7 +13,8 @@ import (
 func VaultClient() (*vault.Client, error) {
 	//configure client
 	config := vault.DefaultConfig()
-	config.Address = "https://active.vault.service.consul"
+	//config.Address = "https://active.vault.service.consul" //TODO: Consul DNS https cert chain
+	config.Address = "https://vault.dev.neocharge.io"
 
 	//create client
 	client, err := vault.NewClient(config)
