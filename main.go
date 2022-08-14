@@ -103,7 +103,7 @@ func (vp *VaultProvider) Retrieve() (credentials.Value, error) {
 	args["ttl"] = vp.TTL
 
 	log.Println("vp.VaultClient.Logical().Write(vp.CredentialPath, args)")
-	resp, err := vp.VaultClient.Logical().Write(vp.CredentialPath, args)
+	resp, err := vp.VaultClient.Logical().Read(vp.CredentialPath)
 	if err != nil {
 		log.Println("aaaaa")
 		return rv, err
