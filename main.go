@@ -43,7 +43,7 @@ func createVaultClient() (*vault.Client, error) {
 	}
 
 	//authenticate client
-	err = AWSIamLogin(client, "aws", "SERVERID", "nomad-job-role")
+	err = AWSIamLogin(client, "aws-ec2", "SERVERID", "nomad-job-role")
 	if err != nil {
 		return nil, fmt.Errorf("failed to authenticate vault client with IAM: %w", err)
 	}
