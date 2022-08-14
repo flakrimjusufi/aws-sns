@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
@@ -12,6 +11,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -31,27 +31,38 @@ func PublishMessage(svc snsiface.SNSAPI, msg, phoneNumber *string) (*sns.Publish
 	return result, err
 }
 
-// AWSLogin will create a Vault client, login via an AWS role, and return a valid Vault token and client that can be
+func createVaultClient() (*vault.Client, error) {
+	//configure client
+	config := vault.DefaultConfig()
+	config.Address = "https://vault.dev.neocharge.io" //TODO: replace with active.vault.service.consul
+
+	//create client
+	client, err := vault.NewClient(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Vault client: %w", err)
+	}
+
+	//authenticate client
+	err = AWSIamLogin(client, "aws", "SERVERID", "nomad-job-role")
+	if err != nil {
+		return nil, fmt.Errorf("failed to authenticate vault client with IAM: %w", err)
+	}
+
+	return client, nil
+}
+
+// AWSIamLogin will create a Vault client, login via an AWS role, and return a valid Vault token and client that can be
 // used to get secrets.
 // The authProvider is likely "aws". It's the "Path" column as described in these docs:
 // https://www.vaultproject.io/api/auth/aws#login.
 // The serverID is an optional value to be placed in the X-Vault-AWS-IAM-Server-ID header of the HTTP request.
 // The role is an AWS IAM role. It needs to be able to read secrets from Vault.
-func AWSLogin(authProvider, serverID, role string) (client *vault.Client, token string, secret *vault.Secret, err error) {
-
-	// Create the Vault client.
-	//
-	// Configuration is gathered from environment variables by upstream vault package. Environment variables like
-	// VAULT_ADDR and VAULT_SKIP_VERIFY are relevant. The VAULT_TOKEN environment variable shouldn't be needed.
-	// https://www.vaultproject.io/docs/commands#environment-variables
-	if client, err = vault.NewClient(nil); err != nil {
-		return nil, "", nil, fmt.Errorf("failed to create Vault client: %w", err)
-	}
+func AWSIamLogin(client *vault.Client, authProvider, serverID, role string) (err error) {
 
 	// Acquire an AWS session.
-	var sess *session.Session
-	if sess, err = session.NewSession(); err != nil {
-		return nil, "", nil, fmt.Errorf("failed to create AWS session: %w", err)
+	sess, err := session.NewSession()
+	if err != nil {
+		return fmt.Errorf("failed to create AWS session: %w", err)
 	}
 
 	// Create a Go structure to talk to the AWS token service.
@@ -67,19 +78,19 @@ func AWSLogin(authProvider, serverID, role string) (client *vault.Client, token 
 
 	// Sign the request to the AWS token service.
 	if err = request.Sign(); err != nil {
-		return nil, "", nil, fmt.Errorf("failed to sign AWS identity request: %w", err)
+		return fmt.Errorf("failed to sign AWS identity request: %w", err)
 	}
 
 	// JSON marshal the headers.
 	var headers []byte
 	if headers, err = json.Marshal(request.HTTPRequest.Header); err != nil {
-		return nil, "", nil, fmt.Errorf("failed to JSON marshal HTTP headers for AWS identity request: %w", err)
+		return fmt.Errorf("failed to JSON marshal HTTP headers for AWS identity request: %w", err)
 	}
 
 	// Read the body of the request.
 	var body []byte
 	if body, err = ioutil.ReadAll(request.HTTPRequest.Body); err != nil {
-		return nil, "", nil, fmt.Errorf("failed to JSON marshal HTTP body for AWS identity request: %w", err)
+		return fmt.Errorf("failed to JSON marshal HTTP body for AWS identity request: %w", err)
 	}
 
 	// Create the data to write to Vault.
@@ -91,62 +102,93 @@ func AWSLogin(authProvider, serverID, role string) (client *vault.Client, token 
 	data["role"] = role
 
 	// Create the path to write to for Vault.
-	//
 	// The authProvider is the value referenced in the "Path" column in this documentation. It's likely "aws".
 	// https://www.vaultproject.io/api/auth/aws#login
 	path := fmt.Sprintf("auth/%s/login", authProvider)
 
 	// Write the AWS token service request to Vault.
-	if secret, err = client.Logical().Write(path, data); err != nil {
-		return nil, "", nil, fmt.Errorf("failed to write data to Vault to get token: %w", err)
+	secret, err := client.Logical().Write(path, data)
+	if err != nil {
+		return fmt.Errorf("failed to write data to Vault to get token: %w", err)
 	}
+
 	if secret == nil {
-		return nil, "", nil, fmt.Errorf("failed to get token from Vault: %w", err)
+		return fmt.Errorf("failed to get token from Vault: %w", err)
 	}
 
 	// Get the Vault token from the response.
-	if token, err = secret.TokenID(); err != nil {
-		return nil, "", nil, fmt.Errorf("failed to get token from Vault response: %w", err)
+	token, err := secret.TokenID()
+	if err != nil {
+		return fmt.Errorf("failed to get token from Vault response: %w", err)
 	}
 
 	// Set the token for the client as the one it just received.
 	client.SetToken(token)
 
-	return client, token, secret, nil
+	return nil
 }
 
-func GetSecret() (string, string, string) {
-	config := vault.DefaultConfig()
+// The VaultProvider object implements the AWS SDK `credentials.Provider`
+// interface. Use the `NewVaultProvider` function to construct the object with
+// default settings, or if you need to configure the `vault.Client` object,
+// TTL, or path yourself, you can build the object by hand.
+type VaultProvider struct {
+	// The full Vault API path to the STS credentials endpoint.
+	CredentialPath string
 
-	config.Address = "https://vault.dev.neocharge.io"
+	// The TTL of the STS credentials in the form of a Go duration string.
+	TTL string
 
-	client, token, whatIsThisSecret, err := AWSLogin("aws", "", "rolefromvault")
+	// The `vault.Client` object used to interact with Vault.
+	VaultClient *vault.Client
+
+	// compose with credentials.Expiry to get free IsExpired()
+	credentials.Expiry
+}
+
+// Creates a new VaultProvider. Supply the path where the AWS secrets engine
+// is mounted as well as the role name to fetch from. The VaultProvider is
+// initialized with a default client, which uses the VAULT_ADDR and VAULT_TOKEN
+// environment variables to configure itself. This also sets a default TTL of
+// 30 minutes for the credentials' lifetime.
+func NewVaultProvider(client *vault.Client, enginePath string, roleName string) *VaultProvider {
+	return &VaultProvider{
+		CredentialPath: (enginePath + "/creds/" + roleName),
+		TTL:            "30m",
+		VaultClient:    client,
+	}
+}
+
+// An extra shortcut to avoid needing to import credentials into your source
+// file or call nested functions. Call this to return a new Credentials object
+// using the VaultProvider.
+func NewVaultProviderCredentials(client *vault.Client, enginePath string, roleName string) *credentials.Credentials {
+	return credentials.NewCredentials(NewVaultProvider(client, enginePath, roleName))
+}
+
+// Implements the Retrieve() function for the AWS SDK credentials.Provider
+// interface.
+func (vp *VaultProvider) Retrieve() (credentials.Value, error) {
+	rv := credentials.Value{
+		ProviderName: "Vault",
+	}
+
+	args := make(map[string]interface{})
+	args["ttl"] = vp.TTL
+
+	resp, err := vp.VaultClient.Logical().Write(vp.CredentialPath, args)
 	if err != nil {
-		log.Fatalf("unable to initialize Vault client: %v", err)
-	}
-	log.Println(token, whatIsThisSecret)
-
-	secret, err := client.KVv1("aws").Get(context.Background(), "creds/sms_sender")
-	if err != nil {
-		log.Fatalf("unable to read secret: %v", err)
+		return rv, err
 	}
 
-	access_key, ok := secret.Data["access_key"].(string)
-	if !ok {
-		log.Fatalf("value type assertion failed: %T %#v", secret.Data["access_key"], secret.Data["access_key"])
-	}
+	// set expiration time via credentials.Expiry with a 10 second window
+	vp.SetExpiration(time.Now().Add(time.Duration(resp.LeaseDuration)*time.Second), time.Duration(10*time.Second))
 
-	secret_key, ok := secret.Data["secret_key"].(string)
-	if !ok {
-		log.Fatalf("value type assertion failed: %T %#v", secret.Data["secret_key"], secret.Data["secret_key"])
-	}
+	rv.AccessKeyID = resp.Data["access_key"].(string)
+	rv.SecretAccessKey = resp.Data["secret_key"].(string)
+	rv.SessionToken = resp.Data["security_token"].(string)
 
-	security_token, ok := secret.Data["security_token"].(string)
-	if !ok {
-		log.Fatalf("value type assertion failed: %T %#v", secret.Data["security_token"], secret.Data["security_token"])
-	}
-
-	return access_key, secret_key, security_token
+	return rv, nil
 }
 
 func main() {
@@ -160,21 +202,19 @@ func main() {
 	flag.Parse()
 
 	if *msgPtr == "" || *phoneNumber == "" {
-		fmt.Println("You must supply a message and a phone number")
-		os.Exit(1)
+		log.Fatalf("You must supply a message and a phone number")
 	}
 
-	//TODO: auto renew vault credentials
-	//TODO: auto renew aws credentials
-
-	//get AWS credentials from vault
-	access_key, secret_key, security_token := GetSecret()
+	client, err := createVaultClient()
+	if err != nil {
+		log.Fatalf("Unable to create vault client: %s", err)
+	}
 
 	sess := session.Must(session.NewSessionWithOptions(session.Options{
 		SharedConfigState: session.SharedConfigEnable,
 		Config: aws.Config{
-			Region:      aws.String("us-west-2"),
-			Credentials: credentials.NewStaticCredentials(access_key, secret_key, security_token),
+			Region:      aws.String("us-west-2"), //SMS must come from us-west-2 region!
+			Credentials: credentials.NewCredentials(NewVaultProvider(client, "aws", "sms_sender")),
 		},
 	}))
 

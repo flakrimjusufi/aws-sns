@@ -46,10 +46,6 @@ job "${job_name}" {
       }
 
       env = {
-        "AWS_ACCESS_KEY_ID" = "${env_AWS_ACCESS_KEY_ID}"
-        "AWS_SECRET_ACCESS_KEY" = "${env_AWS_SECRET_ACCESS_KEY}"
-        "AWS_SESSION_TOKEN" = "${env_AWS_SESSION_TOKEN}"
-        "AWS_REGION" = "${env_AWS_REGION}"
       }
     }
   }
