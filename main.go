@@ -19,7 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/sns"
 	"github.com/aws/aws-sdk-go/service/sns/snsiface"
 	"github.com/aws/aws-sdk-go/service/sts"
-	"github.com/hashicorp/vault/api"
+	vault "github.com/hashicorp/vault/api"
 )
 
 func PublishMessage(svc snsiface.SNSAPI, msg, phoneNumber *string) (*sns.PublishOutput, error) {
@@ -37,14 +37,14 @@ func PublishMessage(svc snsiface.SNSAPI, msg, phoneNumber *string) (*sns.Publish
 // https://www.vaultproject.io/api/auth/aws#login.
 // The serverID is an optional value to be placed in the X-Vault-AWS-IAM-Server-ID header of the HTTP request.
 // The role is an AWS IAM role. It needs to be able to read secrets from Vault.
-func AWSLogin(authProvider, serverID, role string) (client *api.Client, token string, secret *api.Secret, err error) {
+func AWSLogin(authProvider, serverID, role string) (client *vault.Client, token string, secret *vault.Secret, err error) {
 
 	// Create the Vault client.
 	//
 	// Configuration is gathered from environment variables by upstream vault package. Environment variables like
 	// VAULT_ADDR and VAULT_SKIP_VERIFY are relevant. The VAULT_TOKEN environment variable shouldn't be needed.
 	// https://www.vaultproject.io/docs/commands#environment-variables
-	if client, err = api.NewClient(nil); err != nil {
+	if client, err = vault.NewClient(nil); err != nil {
 		return nil, "", nil, fmt.Errorf("failed to create Vault client: %w", err)
 	}
 
