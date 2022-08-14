@@ -4,10 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"flag"
-	"fmt"
 	"log"
-	"os"
 	"strconv"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -52,20 +51,24 @@ func main() {
 		},
 	}))
 
-	svc := sns.New(sess)
+	log.Println("Vault client created.")
+	log.Println("AWS session created.")
+	log.Println("Running indefinitely...")
 
-	result, err := PublishMessage(svc, msgPtr, phoneNumber)
-	if err != nil {
-		fmt.Println("Got an error publishing the message:")
-		fmt.Println(err)
-		return
+	for {
+		log.Println("Checking credentials...")
+		creds, err := sess.Config.Credentials.Get()
+		if err != nil {
+			log.Fatalln("Unable to get AWS session credentials!", err)
+		}
+		exp_time, err := sess.Config.Credentials.ExpiresAt()
+		if err != nil {
+			log.Fatalln("Unable to get AWS session credentials expiry time!", err)
+		}
+		log.Println("   Secret Access Key:", creds.SecretAccessKey)
+		log.Println("             Expires:", exp_time)
+		time.Sleep(1 * time.Minute)
 	}
-	if err != nil {
-		fmt.Println(err.Error())
-		os.Exit(1)
-	}
-
-	fmt.Println(*result.MessageId)
 }
 
 func GenerateRandomNumber() uint16 {

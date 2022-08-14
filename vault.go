@@ -1,3 +1,20 @@
+/*
+Derived from https://github.com/daveadams/vax with the following license:
+
+This work is dedicated to the public domain. No rights reserved.
+
+I, the copyright holder of this work, hereby release it into the public
+domain. This applies worldwide.
+
+I grant any entity the right to use this work for any purpose, without
+any conditions, unless such conditions are required by law.
+
+If you require a fuller legal statement, please refer to the Creative
+Commons Zero license:
+
+http://creativecommons.org/publicdomain/zero/1.0/
+*/
+
 package main
 
 import (
@@ -44,9 +61,6 @@ type VaultProvider struct {
 	// The full Vault API path to the STS credentials endpoint.
 	CredentialPath string
 
-	// The TTL of the STS credentials in the form of a Go duration string.
-	TTL string
-
 	// The `vault.Client` object used to interact with Vault.
 	VaultClient *vault.Client
 
@@ -62,7 +76,6 @@ type VaultProvider struct {
 func NewVaultProvider(client *vault.Client, enginePath string, roleName string) *VaultProvider {
 	return &VaultProvider{
 		CredentialPath: (enginePath + "/creds/" + roleName),
-		TTL:            "30m",
 		VaultClient:    client,
 	}
 }
