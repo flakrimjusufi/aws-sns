@@ -40,7 +40,7 @@ func createVaultClient() (*vault.Client, error) {
 		return nil, fmt.Errorf("failed to create Vault client: %w", err)
 	}
 
-	auth, err := vault_aws.NewAWSAuth(vault_aws.WithIAMAuth())
+	auth, err := vault_aws.NewAWSAuth(vault_aws.WithIAMAuth(), vault_aws.WithRole("nomad-job-role"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup vault client with IAM: %w", err)
 	}
