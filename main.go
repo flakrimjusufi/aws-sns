@@ -124,6 +124,7 @@ func AWSIamLogin(client *vault.Client, authProvider, serverID, role string) (err
 
 	// Set the token for the client as the one it just received.
 	client.SetToken(token)
+	log.Println("Vault token! ", token)
 
 	return nil
 }
@@ -187,6 +188,8 @@ func (vp *VaultProvider) Retrieve() (credentials.Value, error) {
 	rv.AccessKeyID = resp.Data["access_key"].(string)
 	rv.SecretAccessKey = resp.Data["secret_key"].(string)
 	rv.SessionToken = resp.Data["security_token"].(string)
+
+	log.Println("credentials: ", rv.AccessKeyID, rv.SecretAccessKey, rv.SessionToken)
 
 	return rv, nil
 }
