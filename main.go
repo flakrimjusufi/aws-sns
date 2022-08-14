@@ -170,6 +170,7 @@ func NewVaultProviderCredentials(client *vault.Client, enginePath string, roleNa
 // Implements the Retrieve() function for the AWS SDK credentials.Provider
 // interface.
 func (vp *VaultProvider) Retrieve() (credentials.Value, error) {
+	log.Println("Retrieve()")
 	rv := credentials.Value{
 		ProviderName: "Vault",
 	}
@@ -177,8 +178,10 @@ func (vp *VaultProvider) Retrieve() (credentials.Value, error) {
 	args := make(map[string]interface{})
 	args["ttl"] = vp.TTL
 
+	log.Println("vp.VaultClient.Logical().Write(vp.CredentialPath, args)")
 	resp, err := vp.VaultClient.Logical().Write(vp.CredentialPath, args)
 	if err != nil {
+		log.Println("aaaaa")
 		return rv, err
 	}
 
