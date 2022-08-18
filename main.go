@@ -8,9 +8,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sns"
 	"github.com/aws/aws-sdk-go/service/sns/snsiface"
 )
@@ -38,18 +35,10 @@ func main() {
 		log.Fatalf("You must supply a message and a phone number")
 	}
 
-	client, err := VaultClient()
+	sess, err := NewAwsSession()
 	if err != nil {
-		log.Fatalf("Unable to create vault client: %s", err)
+		log.Fatalln("Unable to create AWS session!", err)
 	}
-
-	sess := session.Must(session.NewSessionWithOptions(session.Options{
-		SharedConfigState: session.SharedConfigEnable,
-		Config: aws.Config{
-			Region:      aws.String("us-west-2"), //SMS must come from us-west-2 region!
-			Credentials: credentials.NewCredentials(NewVaultProvider(client, "aws", "sms_sender")),
-		},
-	}))
 
 	log.Println("Vault client created.")
 	log.Println("AWS session created.")
