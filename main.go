@@ -4,12 +4,12 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"flag"
-	"fmt"
-	"github.com/aws/aws-sdk-go/aws/session"
+	"log"
+	"strconv"
+	"time"
+
 	"github.com/aws/aws-sdk-go/service/sns"
 	"github.com/aws/aws-sdk-go/service/sns/snsiface"
-	"os"
-	"strconv"
 )
 
 func PublishMessage(svc snsiface.SNSAPI, msg, phoneNumber *string) (*sns.PublishOutput, error) {
@@ -26,36 +26,38 @@ func main() {
 	randomNumber := strconv.Itoa(int(GenerateRandomNumber()))
 
 	msgPtr := flag.String("m", randomNumber, "The message to send to the user")
-	phoneNumber := flag.String("n", "[+][country code][area code][local phone number]",
+	phoneNumber := flag.String("n", "+16366146678",
 		"The phone number you want to send message to in E.164 format")
 
 	flag.Parse()
 
 	if *msgPtr == "" || *phoneNumber == "" {
-		fmt.Println("You must supply a message and a phone number")
-		os.Exit(1)
+		log.Fatalf("You must supply a message and a phone number")
 	}
 
-	// Initialize a session that the SDK will use to load
-	// credentials from the shared credentials file. (~/.aws/credentials).
-	sess := session.Must(session.NewSessionWithOptions(session.Options{
-		SharedConfigState: session.SharedConfigEnable,
-	}))
-
-	svc := sns.New(sess)
-
-	result, err := PublishMessage(svc, msgPtr, phoneNumber)
+	sess, err := NewAwsSession()
 	if err != nil {
-		fmt.Println("Got an error publishing the message:")
-		fmt.Println(err)
-		return
-	}
-	if err != nil {
-		fmt.Println(err.Error())
-		os.Exit(1)
+		log.Fatalln("Unable to create AWS session!", err)
 	}
 
-	fmt.Println(*result.MessageId)
+	log.Println("Vault client created.")
+	log.Println("AWS session created.")
+	log.Println("Running indefinitely...")
+
+	for {
+		log.Println("Checking credentials...")
+		creds, err := sess.Config.Credentials.Get()
+		if err != nil {
+			log.Fatalln("Unable to get AWS session credentials!", err)
+		}
+		exp_time, err := sess.Config.Credentials.ExpiresAt()
+		if err != nil {
+			log.Fatalln("Unable to get AWS session credentials expiry time!", err)
+		}
+		log.Println("   Secret Access Key:", creds.SecretAccessKey)
+		log.Println("             Expires:", exp_time)
+		time.Sleep(1 * time.Minute)
+	}
 }
 
 func GenerateRandomNumber() uint16 {

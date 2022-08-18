@@ -1,0 +1,201 @@
+name: "Terraform"
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+env:
+  APPLICATION_NAME: application-jsandbox
+  NOMAD_ADDR: https://nomad.dev.neocharge.io
+
+jobs:
+  
+  terraform:
+    name: "Terraform"
+    runs-on: ubuntu-latest
+    env:
+      tf-directory: ./devops/tf
+    outputs:
+      ecr_registry_url: ${{ steps.terraform_output_ecr_registry_url.outputs.ecr_registry_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          # terraform_version: 0.13.0:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+          terraform_wrapper: false
+
+      - name: Terraform Format
+        id: fmt
+        run: terraform fmt -check
+        working-directory: ${{env.tf-directory}}
+
+      - name: Terraform Init
+        id: init
+        run: terraform init
+        working-directory: ${{env.tf-directory}}
+      
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+        working-directory: ${{env.tf-directory}}
+        env:
+          TF_VAR_aws_ecr_repository_name: ${{ env.APPLICATION_NAME }}
+
+      - name: Terraform Plan
+        id: plan
+        if: github.event_name == 'pull_request'
+        run: terraform plan -no-color -input=false
+        continue-on-error: true
+        working-directory: ${{env.tf-directory}}
+        env:
+          TF_VAR_aws_ecr_repository_name: ${{ env.APPLICATION_NAME }}
+
+      - uses: actions/github-script@v6
+        if: github.event_name == 'pull_request'
+        env:
+          PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const output = `#### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
+            #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
+            #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
+            #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`\n
+            ${process.env.PLAN}
+            \`\`\`
+
+            </details>
+
+            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+        working-directory: ${{env.tf-directory}}
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        run: terraform apply -auto-approve -input=false
+        working-directory: ${{env.tf-directory}}
+        env:
+          TF_VAR_aws_ecr_repository_name: ${{ env.APPLICATION_NAME }}
+
+      - name: Terraform Output - ECR Registry Url
+        id: terraform_output_ecr_registry_url
+        run: |
+          echo '::echo::on'
+          URL=$(terraform output -raw ecr_respository_url)
+          echo "::set-output name=ecr_registry_url::$URL"
+        working-directory: ${{env.tf-directory}}
+
+  build-upload:
+    needs: terraform
+    name: "Build and upload to ECS"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Import Secrets
+        uses: hashicorp/vault-action@v2.4.0
+        with:
+          url: https://vault.dev.neocharge.io
+          token: ${{ secrets.VAULT_TOKEN }}
+          caCertificate: ${{ secrets.VAULT_CA_CERT }}
+          secrets: |
+              aws/creds/ecr_pusher access_key | AWS_ACCESS_KEY_ID;
+              aws/creds/ecr_pusher secret_key | AWS_SECRET_ACCESS_KEY;
+              aws/creds/ecr_pusher security_token | AWS_SESSION_TOKEN;
+      
+      - name: Sleep for 10 seconds
+        run: sleep 10s
+        shell: bash
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-region: us-west-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build and tag Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ env.APPLICATION_NAME }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+
+      - name: Push Docker image to Amazon ECR
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ env.APPLICATION_NAME }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+  deploy:
+    name: "Deploy with Nomad"
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    needs:
+      - terraform
+      - build-upload
+    runs-on: ubuntu-latest
+    env:
+      tf-directory: ./devops/tf
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Import Secrets
+        uses: hashicorp/vault-action@v2.4.0
+        with:
+          url: ${{ secrets.VAULT_ADDR }}
+          token: ${{ secrets.VAULT_TOKEN }}
+          caCertificate: ${{ secrets.VAULT_CA_CERT }}
+          secrets: |
+              nomad/creds/developer secret_id | NOMAD_TOKEN;
+              
+      - name: Deploy with Nomad
+        uses: scott-ad-riley/nomad-deploy-action@master
+        env:
+          ECR_REGISTRY: ${{ needs.terraform.outputs.ecr_registry_url }}
+          ECR_REPOSITORY: ${{ env.APPLICATION_NAME }}
+          IMAGE_TAG: ${{ github.sha }}
+        with:
+          token: ${{ env.NOMAD_TOKEN }}
+          address: ${{ env.NOMAD_ADDR }}
+          job: ./devops/nomad/main.nomad.tpl
+          additional_vars: |
+            job_name=${{ env.APPLICATION_NAME }}
+            job_datacenter=us-west-1a
+            job_image=${{ env.ECR_REGISTRY }}:${{ env.IMAGE_TAG }}
+            route_domain=testt
+            route_path=jp
+            service_cpu_mhz=500
+            service_memory_mb=128
+            env_AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+            env_AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            env_AWS_SESSION_TOKEN=${{ secrets.AWS_SESSION_TOKEN }}
+            env_AWS_REGION=${{ secrets.AWS_REGION }}
+
